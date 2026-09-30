@@ -23,7 +23,7 @@ jobs:
       - name: Install required tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip findutils
+          sudo apt-get install -y unzip findutils wget
 
       - name: Find Android project ZIP
         shell: bash
@@ -40,33 +40,49 @@ jobs:
           mkdir -p android-project
           unzip -q "$ZIP_FILE" -d android-project
 
-          echo "Extracted project:"
-          find android-project -maxdepth 4 -type f | head -100
+          echo "Extracted files:"
+          find android-project -maxdepth 5 -type f | head -150
 
-      - name: Find Gradle project
+      - name: Locate Android Gradle project
         shell: bash
         run: |
-          PROJECT_DIR=$(find android-project -type f \
-            \( -name "gradlew" -o -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -print -quit | xargs -r dirname)
+          SETTINGS_FILE=$(find android-project -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit)
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: No Android Gradle project was found inside the ZIP."
-            echo "The ZIP must contain gradlew or settings.gradle."
+          BUILD_FILE=$(find android-project -type f \
+            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+            -print -quit)
+
+          if [ -n "$SETTINGS_FILE" ]; then
+            PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          elif [ -n "$BUILD_FILE" ]; then
+            PROJECT_DIR=$(dirname "$BUILD_FILE")
+          else
+            echo "ERROR: No Android Gradle project found inside ZIP."
             exit 1
           fi
 
-          echo "Android project found at: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
 
-      - name: Grant Gradle permission
+      - name: Install Gradle
         run: |
-          chmod +x "$PROJECT_DIR/gradlew"
+          wget -q https://services.gradle.org/distributions/gradle-8.10.2-bin.zip
+          unzip -q gradle-8.10.2-bin.zip -d "$HOME"
+          echo "$HOME/gradle-8.10.2/bin" >> "$GITHUB_PATH"
 
       - name: Build Debug APK
+        shell: bash
         run: |
           cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --no-daemon --stacktrace
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            gradle assembleDebug --no-daemon --stacktrace
+          fi
 
       - name: Find APK
         shell: bash
