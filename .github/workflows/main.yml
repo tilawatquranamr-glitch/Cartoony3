@@ -4,12 +4,11 @@ on:
   push:
     branches:
       - main
-      - master
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -20,16 +19,16 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
       - name: Install required tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip findutils
 
-      - name: Find and extract Android project ZIP
+      - name: Find Android project ZIP
+        shell: bash
         run: |
-          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: No ZIP file found."
@@ -41,36 +40,36 @@ jobs:
           mkdir -p android-project
           unzip -q "$ZIP_FILE" -d android-project
 
-          echo "Extracted files:"
-          find android-project -maxdepth 3 -type f | head -100
+          echo "Extracted project:"
+          find android-project -maxdepth 4 -type f | head -100
 
-      - name: Locate Android project
+      - name: Find Gradle project
+        shell: bash
         run: |
-          PROJECT_DIR=$(find android-project -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit | xargs dirname)
+          PROJECT_DIR=$(find android-project -type f \
+            \( -name "gradlew" -o -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
-            PROJECT_DIR=$(find android-project -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -print -quit | xargs dirname)
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project was not found inside ZIP."
+            echo "ERROR: No Android Gradle project was found inside the ZIP."
+            echo "The ZIP must contain gradlew or settings.gradle."
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Android project found at: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
+      - name: Grant Gradle permission
+        run: |
+          chmod +x "$PROJECT_DIR/gradlew"
 
       - name: Build Debug APK
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Find APK
+        shell: bash
         run: |
           APK=$(find "$PROJECT_DIR" -type f -name "*.apk" | head -n 1)
 
@@ -87,4 +86,3 @@ jobs:
         with:
           name: Cartoony-App-APK
           path: ${{ env.APK_PATH }}
-          if-no-files-found: error
